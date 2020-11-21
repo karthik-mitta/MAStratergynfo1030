@@ -1,0 +1,142 @@
+#!/usr/bin/env python
+# coding: utf-8
+
+# In[66]:
+
+
+import json
+import websocket
+import future
+import requests
+import pandas
+from pandas import DataFrame as df
+import numpy as np
+from datetime import *
+from snapi_py_client.snapi_bridge import StocknoteAPIPythonBridge
+import time
+data={}
+idata={}
+tdata={}
+idata15={}
+tdata15={}
+pdata={}
+pdata1h={}
+samco=StocknoteAPIPythonBridge()
+login=samco.login(body={"userId":'xxxx','password':xxxxxx,'yob':'xxxx'})
+logind=json.loads(login)
+samco.set_session_token(sessionToken=logind['sessionToken'])
+print("login successful", "sessiontoken is " +str(logind['sessionToken']))
+list= pandas.read_csv(r'c:\Users\mitta\OneDrive\shares\folist.csv', encoding='utf-8')
+list["Symbol"]=list["Symbol"].str.strip()
+print("the list of symbols is\n", list)
+
+
+# In[96]:
+
+
+istart=datetime(2020,11,10,9,15)
+istart=istart.strftime('%Y-%m-%d %H:%M:%S')
+iend=datetime.now()
+iend=iend.strftime('%Y-%m-%d %H:%M:%S')
+idata60={}
+idata15={}
+for i in list["Symbol"]:
+    a=samco.get_intraday_candle_data(symbol_name=i,exchange=samco.EXCHANGE_NSE, from_date=istart,to_date=iend)
+    b=pandas.read_json(a)
+    a=pandas.json_normalize(b["intradayCandleData"])
+    idata[i]=a
+    time.sleep(0.075)
+for k in idata:
+    idata[k]=idata[k].astype({'dateTime':'datetime64[ns]','open':float, 'high':float,'low':float,'close':float,'volume':float})
+    idata[k]['change']=idata[k].close.diff()
+    idata[k]['percentchg']=(idata[k]['change']/idata[k]['close'])*100
+for l in idata:
+    idata[l]=idata[l].sort_values(by="dateTime", ascending=False)
+    idata[l].set_index(['dateTime'],inplace=True)
+    idata60[l]=idata[l].resample('60Min').agg({'open': 'first','high': 'max','low': 'min','close': 'last','volume': 'sum','change':'sum','percentchg':'sum'})
+    idata15[l]=idata[l].resample('15Min').agg({'open': 'first','high': 'max','low': 'min','close': 'last','volume': 'sum','change':'sum','percentchg':'sum'})
+for m in idata60:
+    idata60[m]['MA10']=idata60[m]['close'].ewm(span=10,adjust=False).mean()
+    idata60[m]['MA30']=idata60[m]['close'].ewm(span=30,adjust=False).mean()
+    idata15[m]['MA10']=idata15[m]['close'].ewm(span=10,adjust=False).mean()
+    idata15[m]['MA30']=idata15[m]['close'].ewm(span=30,adjust=False).mean()
+
+
+# In[103]:
+
+
+tstart=datetime(2020,11,20,9,15)
+tstart=tstart.strftime('%Y-%m-%d %H:%M:%S')
+tend=datetime(2020,11,20,11,15)
+tend=tend.strftime('%Y-%m-%d %H:%M:%S')
+for i in list["Symbol"]:
+    x=samco.get_intraday_candle_data(symbol_name=i,exchange=samco.EXCHANGE_NSE, from_date=tstart,to_date=tend)
+    y=pandas.read_json(x)
+    x=pandas.json_normalize(y["intradayCandleData"])
+    tdata[i]=x
+    time.sleep(0.075)
+for n in tdata:
+    tdata[n]=tdata[n].astype({'dateTime':'datetime64[ns]','open':float, 'high':float,'low':float,'close':float,'volume':float})
+    tdata[n]['change']=tdata[n].close.diff()
+    tdata[n]['percentchg']=(tdata[n]['change']/tdata[n]['close'])*100
+for p in tdata:
+    tdata[p]=tdata[p].sort_values(by="dateTime", ascending=False)
+    tdata[p].set_index(['dateTime'],inplace=True)
+    tdata15[p]=tdata[p].resample('15Min').agg({'open': 'first','high': 'max','low': 'min','close': 'last','volume': 'sum','change':'sum','percentchg':'sum'})
+print("todays intraday 15 min  data is/n",tdata15)
+
+
+# In[ ]:
+
+
+a=len(tdata15['CIPLA'])
+b=len(idata60['CIPLA'])
+btlist=df()
+stlist=df()
+j=0
+k=0
+btlist=btlist.reindex(columns=['name','cday15close','MA10','MA30','15Mvolume1','15Mvolume2','15Mvolume3','averagevolume','15Mvolume1pct','15Mvolume2pct','15Mvolume3pct'],index=range(20))
+stlist=stlist.reindex(columns=['name','cday15close','MA10','MA30','15Mvolume1','15Mvolume2','15Mvolume3','averagevolume','15Mvolume1pct','15Mvolume2pct','15Mvolume3pct'],index=range(20))
+for i in tdata15:
+    bc1=((tdata15[i].close[a-2])<=(idata60[i].MA10[b-2]))
+    bc2=((tdata15[i].close[a-2])>=(idata60[i].MA30[b-2]))
+    sc1=((tdata15[i].close[a-2])>=(idata60[i].MA10[b-2]))
+    sc2=((tdata15[i].close[a-2])<=(idata60[i].MA30[b-2]))
+    if(bc1&bc2):
+        btlist['name'][j]=i
+        btlist['cday15close'][j]=tdata15[i].close[a-2]
+        btlist['MA10'][j]=idata60[i].MA10[b-2]
+        btlist['MA30'][j]=idata60[i].MA30[b-2]
+        btlist['15Mvolume1'][j]=tdata15[i].volume[a-2]
+        btlist['15Mvolume2'][j]=tdata15[i].volume[a-3]
+        btlist['15Mvolume3'][j]=tdata15[i].volume[a-4]
+        btlist['averagevolume'][j]=idata15[i].volume.mean()
+        btlist['averagevolume']=btlist['averagevolume'].round(0)
+        btlist['15Mvolume1pct'][j]=(tdata15[i].volume[a-2])/(idata15[i].volume.mean())*100
+        btlist['15Mvolume2pct'][j]=(tdata15[i].volume[a-3])/(idata15[i].volume.mean())*100
+        btlist['15Mvolume3pct'][j]=(tdata15[i].volume[a-3])/(idata15[i].volume.mean())*100
+        j=j+1      
+    if(sc1&sc2):
+        stlist['name'][k]=i
+        stlist['cday15close'][k]=tdata15[i].close[a-2]
+        stlist['MA10'][k]=idata60[i].MA10[b-2]
+        stlist['MA30'][k]=idata60[i].MA30[b-2]
+        stlist['15Mvolume1'][k]=tdata15[i].volume[a-2]
+        stlist['15Mvolume2'][k]=tdata15[i].volume[a-3]
+        stlist['15Mvolume3'][k]=tdata15[i].volume[a-4]
+        stlist['averagevolume'][k]=idata15[i].volume.mean()
+        stlist['averagevolume']=stlist['averagevolume'].round(0)
+        stlist['15Mvolume1pct'][k]=(tdata15[i].volume[a-2])/(idata15[i].volume.mean())*100
+        stlist['15Mvolume2pct'][k]=(tdata15[i].volume[a-3])/(idata15[i].volume.mean())*100
+        stlist['15Mvolume3pct'][k]=(tdata15[i].volume[a-3])/(idata15[i].volume.mean())*100
+        stlist['averagevolume']=stlist['averagevolume'].round(0)
+        k=k+1 
+print("The buy Trigger list is/n", btlist)
+print("The Sell Trigger list is/n", stlist)
+
+
+# In[ ]:
+
+
+
+
